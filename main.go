@@ -14,7 +14,7 @@ var (
 	server      string
 	nickname    string
 	reasons     []string
-	tls   bool
+	tls         bool
 )
 
 func main() {
@@ -23,10 +23,10 @@ func main() {
 
 	viper.SetDefault("reasons", [1]string{"You talk to much"})
 	viper.SetDefault("tls", true)
-	
+
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig() // Find and read the config file
-	if err != nil { // Handle errors reading the config file
+	if err != nil {             // Handle errors reading the config file
 		panic(fmt.Errorf("Fatal error config file: %s \n", err))
 	}
 	server = viper.GetString("server")
@@ -34,7 +34,7 @@ func main() {
 	nickname = viper.GetString("nickname")
 	probability = viper.GetInt("probability")
 	reasons = viper.GetStringSlice("reasons")
-	
+
 	con := irc.IRC(nickname, "agab")
 	con.UseTLS = viper.GetBool("tls")
 	err = con.Connect(server)

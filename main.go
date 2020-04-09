@@ -6,6 +6,7 @@ import (
 	"github.com/thoj/go-ircevent"
 	"log"
 	"math/rand"
+	"strings"
 )
 
 var (
@@ -14,14 +15,17 @@ var (
 	server      string
 	nickname    string
 	reasons     []string
+	opRequests  []string
 	tls         bool
 )
 
 func main() {
+	/* Read Configuration from the config file */
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
 	viper.SetDefault("reasons", [1]string{"You talk to much"})
+	viper.SetDefault("opRequests", [1]string{"Can I haz OP ?"})
 	viper.SetDefault("tls", true)
 
 	viper.AddConfigPath(".")
@@ -29,12 +33,15 @@ func main() {
 	if err != nil {             // Handle errors reading the config file
 		panic(fmt.Errorf("Fatal error config file: %s \n", err))
 	}
+
 	server = viper.GetString("server")
 	channels = viper.GetStringSlice("channels")
 	nickname = viper.GetString("nickname")
 	probability = viper.GetInt("probability")
 	reasons = viper.GetStringSlice("reasons")
+	opRequests = viper.GetStringSlice("opRequests")
 
+	/* Connect to the server */
 	con := irc.IRC(nickname, "agab")
 	con.UseTLS = viper.GetBool("tls")
 	err = con.Connect(server)
@@ -42,25 +49,61 @@ func main() {
 		log.Panic("Failed connecting")
 		return
 	}
+
+	/* When ready, join all given channels */
 	con.AddCallback("001", func(e *irc.Event) {
 		for _, channName := range channels {
 			con.Join(channName)
 		}
 	})
 
+	/* Check if you have op in given channel */
+	con.AddCallback("353", func(e *irc.Event) {
+		haveSufficientRights := false
+		chann := strings.Split(e.Raw, " ")[4]
+		for _, prefix := range [4]string{"&", "~", "@", "%"} {
+			if strings.Contains(e.Message(),
+				fmt.Sprintf("%s%s", prefix, nickname)) {
+				log.Printf("%s%s in the channel %s",
+					prefix,
+					nickname,
+					chann)
+				haveSufficientRights = true
+			}
+		}
+
+		if !haveSufficientRights {
+			con.Privmsg(chann,
+				randSliceValue(opRequests))
+		}
+	})
+
+	/* The kickbot in itself */
 	con.AddCallback("PRIVMSG", func(event *irc.Event) {
 		nick := event.Nick
 		chann := event.Arguments[0]
 
 		if rand.Intn(probability) == 1 {
-			req := fmt.Sprintf("KICK %s %s : %s",
+			con.SendRawf("NAMES %s", chann) // Trigger permission test
+			con.SendRawf("KICK %s %s : %s",
 				chann,
 				nick,
-				reasons[rand.Intn(len(reasons))])
+				randSliceValue(reasons))
 			log.Printf("Kicked %s from %s", nick, chann)
-			con.SendRaw(req)
+
 		}
 	})
 
 	con.Loop()
+}
+
+func randSliceValue(sl []string) string {
+	switch len(sl) {
+	case 0:
+		return "yup"
+	case 1:
+		return sl[0]
+	default:
+		return sl[rand.Intn(len(sl))]
+	}
 }

@@ -118,13 +118,48 @@ func randSliceValue(sl []string) string {
 }
 
 func updateConfig(bot *irc.Connection) error {
-	/*
-		nickname = viper.GetString("nickname")
-		probability = viper.GetInt("probability")
-		reasons = viper.GetStringSlice("reasons")
-		opRequests = viper.GetStringSlice("opRequests")
-	*/
 	if !reflect.DeepEqual(viper.GetStringSlice("channels"), channels) {
+		// We part channels that aren't in the new config, and join
+		// those that were added
+		var (
+			part []string
+			join []string
+		)
+
+		newchans := make(map[string]struct{})
+		for _, x := range viper.GetStringSlice("channels") {
+			newchans[x] = struct{}{}
+		}
+
+		oldchans := make(map[string]struct{})
+		for _, x := range channels {
+			oldchans[x] = struct{}{}
+		}
+
+		// channels in newchans, but not oldchans are joined
+		for n, _ := range newchans {
+			if _, exists := oldchans[n]; !exists {
+				join = append(join, n)
+			}
+		}
+
+		for n, _ := range oldchans {
+			if _, exists := newchans[n]; !exists {
+				part = append(join, n)
+			}
+		}
+
+		log.Printf("Leaving %v channels", part)
+		for _, c := range part {
+			bot.SendRawf("PART %s", c)
+		}
+
+		log.Printf("Joining following channels : %v", join)
+		for _, c := range join {
+			bot.Join(c)
+		}
+
+		channels = viper.GetStringSlice("channels")
 		log.Print("Channel's config changed")
 	}
 

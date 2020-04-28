@@ -44,12 +44,6 @@ func main() {
 	reasons = viper.GetStringSlice("reasons")
 	opRequests = viper.GetStringSlice("opRequests")
 
-	/* Watch the config file */
-	viper.WatchConfig()
-	viper.OnConfigChange(func(e fsnotify.Event) {
-		updateConfig()
-	})
-
 	/* Connect to the server */
 	con := irc.IRC(nickname, "agab")
 	con.UseTLS = viper.GetBool("tls")
@@ -103,6 +97,12 @@ func main() {
 		}
 	})
 
+	/* Watch the config file */
+	viper.WatchConfig()
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		updateConfig(con)
+	})
+
 	con.Loop()
 }
 
@@ -117,7 +117,7 @@ func randSliceValue(sl []string) string {
 	}
 }
 
-func updateConfig() error {
+func updateConfig(bot *irc.Connection) error {
 	/*
 		nickname = viper.GetString("nickname")
 		probability = viper.GetInt("probability")
@@ -129,11 +129,17 @@ func updateConfig() error {
 	}
 
 	if nickname != viper.GetString("nickname") {
-		log.Print("Nick changed")
+		nickname = viper.GetString("nickname")
+		bot.Nick(nickname)
+		log.Printf("Updating Nick to %s", nickname)
 	}
 
 	if probability != viper.GetInt("probability") {
-		log.Print("Updating probability of kicking")
+		oldprob := probability
+		probability = viper.GetInt("probability")
+
+		log.Printf("Updating probability of kicking from %d to %d",
+			oldprob, probability)
 	}
 
 	return nil

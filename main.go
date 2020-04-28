@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
-	"github.com/thoj/go-ircevent"
 	"log"
 	"math/rand"
+	"reflect"
 	"strings"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
+	"github.com/thoj/go-ircevent"
 )
 
 var (
@@ -40,6 +43,12 @@ func main() {
 	probability = viper.GetInt("probability")
 	reasons = viper.GetStringSlice("reasons")
 	opRequests = viper.GetStringSlice("opRequests")
+
+	/* Watch the config file */
+	viper.WatchConfig()
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		updateConfig()
+	})
 
 	/* Connect to the server */
 	con := irc.IRC(nickname, "agab")
@@ -106,4 +115,26 @@ func randSliceValue(sl []string) string {
 	default:
 		return sl[rand.Intn(len(sl))]
 	}
+}
+
+func updateConfig() error {
+	/*
+		nickname = viper.GetString("nickname")
+		probability = viper.GetInt("probability")
+		reasons = viper.GetStringSlice("reasons")
+		opRequests = viper.GetStringSlice("opRequests")
+	*/
+	if !reflect.DeepEqual(viper.GetStringSlice("channels"), channels) {
+		log.Print("Channel's config changed")
+	}
+
+	if nickname != viper.GetString("nickname") {
+		log.Print("Nick changed")
+	}
+
+	if probability != viper.GetInt("probability") {
+		log.Print("Updating probability of kicking")
+	}
+
+	return nil
 }

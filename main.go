@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
-	"github.com/thoj/go-ircevent"
 	"log"
 	"math/rand"
+	"reflect"
 	"strings"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
+	"github.com/thoj/go-ircevent"
 )
 
 var (
@@ -94,6 +97,12 @@ func main() {
 		}
 	})
 
+	/* Watch the config file */
+	viper.WatchConfig()
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		updateConfig(con)
+	})
+
 	con.Loop()
 }
 
@@ -106,4 +115,67 @@ func randSliceValue(sl []string) string {
 	default:
 		return sl[rand.Intn(len(sl))]
 	}
+}
+
+func updateConfig(bot *irc.Connection) error {
+	if !reflect.DeepEqual(viper.GetStringSlice("channels"), channels) {
+		// We part channels that aren't in the new config, and join
+		// those that were added
+		var (
+			part []string
+			join []string
+		)
+
+		newchans := make(map[string]struct{})
+		for _, x := range viper.GetStringSlice("channels") {
+			newchans[x] = struct{}{}
+		}
+
+		oldchans := make(map[string]struct{})
+		for _, x := range channels {
+			oldchans[x] = struct{}{}
+		}
+
+		// channels in newchans, but not oldchans are joined
+		for n, _ := range newchans {
+			if _, exists := oldchans[n]; !exists {
+				join = append(join, n)
+			}
+		}
+
+		for n, _ := range oldchans {
+			if _, exists := newchans[n]; !exists {
+				part = append(join, n)
+			}
+		}
+
+		log.Printf("Leaving %v channels", part)
+		for _, c := range part {
+			bot.SendRawf("PART %s", c)
+		}
+
+		log.Printf("Joining following channels : %v", join)
+		for _, c := range join {
+			bot.Join(c)
+		}
+
+		channels = viper.GetStringSlice("channels")
+		log.Print("Channel's config changed")
+	}
+
+	if nickname != viper.GetString("nickname") {
+		nickname = viper.GetString("nickname")
+		bot.Nick(nickname)
+		log.Printf("Updating Nick to %s", nickname)
+	}
+
+	if probability != viper.GetInt("probability") {
+		oldprob := probability
+		probability = viper.GetInt("probability")
+
+		log.Printf("Updating probability of kicking from %d to %d",
+			oldprob, probability)
+	}
+
+	return nil
 }

@@ -3,9 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"math/rand"
-	"reflect"
 	"strings"
+	"regexp"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
@@ -14,12 +13,11 @@ import (
 
 var (
 	channels    []string
-	probability int
 	server      string
 	nickname    string
-	reasons     []string
-	opRequests  []string
 	tls         bool
+	regexString string
+	regex       *regexp.Regexp
 )
 
 func main() {
@@ -27,9 +25,8 @@ func main() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
-	viper.SetDefault("reasons", [1]string{"You talk to much"})
-	viper.SetDefault("opRequests", [1]string{"Can I haz OP ?"})
 	viper.SetDefault("tls", true)
+	viper.SetDefault("regex", `^[a-z]+$`)
 
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig() // Find and read the config file
@@ -40,9 +37,9 @@ func main() {
 	server = viper.GetString("server")
 	channels = viper.GetStringSlice("channels")
 	nickname = viper.GetString("nickname")
-	probability = viper.GetInt("probability")
-	reasons = viper.GetStringSlice("reasons")
-	opRequests = viper.GetStringSlice("opRequests")
+	regexString = viper.GetString("regex")
+
+	regex = regexp.MustCompile(regexString)
 
 	/* Connect to the server */
 	con := irc.IRC(nickname, "agab")
@@ -58,6 +55,16 @@ func main() {
 		for _, channName := range channels {
 			con.Join(channName)
 		}
+	})
+
+	con.AddCallback("JOIN", func(e *irc.Event) {
+		nick := e.Nick
+		chann := e.Arguments[0]
+
+		con.SendRawf("MODE %s +o %s",
+				chann,
+				nick)
+			log.Printf("Gave OP to %s in %s", nick, chann)
 	})
 
 	/* Check if you have op in given channel */
@@ -77,7 +84,7 @@ func main() {
 
 		if !haveSufficientRights {
 			con.Privmsg(chann,
-				randSliceValue(opRequests))
+				"GIB OP PLS")
 		}
 	})
 
@@ -86,12 +93,11 @@ func main() {
 		nick := event.Nick
 		chann := event.Arguments[0]
 
-		if rand.Intn(probability) == 1 {
-			con.SendRawf("NAMES %s", chann) // Trigger permission test
+		if regex.MatchString(event.Message()) {
 			con.SendRawf("KICK %s %s : %s",
 				chann,
 				nick,
-				randSliceValue(reasons))
+				regexString)
 			log.Printf("Kicked %s from %s", nick, chann)
 
 		}
@@ -106,75 +112,22 @@ func main() {
 	con.Loop()
 }
 
-func randSliceValue(sl []string) string {
-	switch len(sl) {
-	case 0:
-		return "yup"
-	case 1:
-		return sl[0]
-	default:
-		return sl[rand.Intn(len(sl))]
-	}
-}
-
 func updateConfig(bot *irc.Connection) error {
-	if !reflect.DeepEqual(viper.GetStringSlice("channels"), channels) {
-		// We part channels that aren't in the new config, and join
-		// those that were added
-		var (
-			part []string
-			join []string
-		)
-
-		newchans := make(map[string]struct{})
-		for _, x := range viper.GetStringSlice("channels") {
-			newchans[x] = struct{}{}
-		}
-
-		oldchans := make(map[string]struct{})
-		for _, x := range channels {
-			oldchans[x] = struct{}{}
-		}
-
-		// channels in newchans, but not oldchans are joined
-		for n, _ := range newchans {
-			if _, exists := oldchans[n]; !exists {
-				join = append(join, n)
-			}
-		}
-
-		for n, _ := range oldchans {
-			if _, exists := newchans[n]; !exists {
-				part = append(join, n)
-			}
-		}
-
-		log.Printf("Leaving %v channels", part)
-		for _, c := range part {
-			bot.SendRawf("PART %s", c)
-		}
-
-		log.Printf("Joining following channels : %v", join)
-		for _, c := range join {
-			bot.Join(c)
-		}
-
-		channels = viper.GetStringSlice("channels")
-		log.Print("Channel's config changed")
-	}
-
 	if nickname != viper.GetString("nickname") {
 		nickname = viper.GetString("nickname")
 		bot.Nick(nickname)
 		log.Printf("Updating Nick to %s", nickname)
 	}
 
-	if probability != viper.GetInt("probability") {
-		oldprob := probability
-		probability = viper.GetInt("probability")
-
-		log.Printf("Updating probability of kicking from %d to %d",
-			oldprob, probability)
+	if regexString != viper.GetString("regex") {
+		regexString = viper.GetString("regex")
+		r, err := regexp.Compile(regexString)
+		if err != nil {
+			log.Printf("Regex didn't compile: %s", err)
+		} else {
+			regex = r
+			log.Printf("Updated regex to : %s", regexString)
+		}
 	}
 
 	return nil
